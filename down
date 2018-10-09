@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+SERVICE_NAME="unifi_guest"
+
+docker stack down ${SERVICE_NAME}

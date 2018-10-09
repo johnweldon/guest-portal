@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+SERVICE_NAME="unifi_guest"
+
+env $( cat .env | grep ^[A-Z] | xargs ) docker stack deploy ${SERVICE_NAME} --compose-file docker-compose.yml --with-registry-auth

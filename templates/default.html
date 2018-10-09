@@ -1,0 +1,26 @@
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
+    <title>Terms and Conditions</title>
+    {{ template "Style" }}
+</head>
+
+<body>
+    <form action="/guest/s/default/" method="post">
+        <fieldset>
+            <legend>Terms and Conditions</legend>
+            {{ template "Terms" }}
+            <input type="hidden" name="id" value="{{ .MAC }}" />
+            <input type="hidden" name="ap" value="{{ .AP }}" />
+            <input type="hidden" name="t" value="{{ .When.Unix }}" />
+            <input type="hidden" name="url" value="{{ .Redirect.String }}" />
+            <input type="hidden" name="ssid" value="{{ .SSID }}" />
+            <input type="hidden" name="nonce" value="{{ .Nonce }}" />
+
+            <input type="submit" name="submit" value="Accept" />
+        </fieldset>
+    </form>
+</body>
+
+</html>

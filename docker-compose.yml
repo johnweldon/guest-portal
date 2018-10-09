@@ -1,0 +1,15 @@
+version: "3.7"
+
+services:
+  portal:
+    image: "docker.w.jw4.us/guest-portal:latest"
+    environment: 
+      - PORT=${PORT:-12380}
+      - PUBLIC_DIR=${PUBLIC_DIR:-public}
+      - TEMPLATE_DIR=${TEMPLATE_DIR:-templates}
+      - UNIFI_USER=${UNIFI_USER:-ubnt}
+      - UNIFI_PASS=${UNIFI_PASS:-ubnt}
+      - UNIFI_URL=${UNIFI_URL:-https://unifi:8443/}
+    ports:
+      - "${PORT:-12380}:${PORT:-12380}"
+
