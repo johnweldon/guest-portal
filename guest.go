@@ -164,6 +164,8 @@ func (h *guestHandler) authorizeGuest(login *guestLogin) error {
 		return err
 	}
 
+	req.Header.Add("content-type", "application/json;charset=UTF-8")
+
 	for _, cookie := range h.cl.Jar.Cookies(authURL) {
 		if cookie.Name == "csrf_token" {
 			req.Header.Add("x-csrf-token", cookie.Value)
