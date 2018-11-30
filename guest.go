@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/cookiejar"
@@ -143,6 +144,8 @@ func (h *guestHandler) loginUnifi() error {
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
+		body, err := ioutil.ReadAll(resp.Body)
+		log.Printf("reading response body: %v\n%s\n", err, string(body))
 		return errors.New(fmt.Sprintf("Incorrect response: %v", resp.Status))
 	}
 	return nil
