@@ -42,6 +42,7 @@ func main() {
 		unifi = u
 	}
 
+	log.Printf("version: %q", portal.Version)
 	log.Printf("configuration:\nPUBLIC_DIR=%q\nTEMPLATE_DIR=%q\nUNIFI_USER=%q\nUNIFI_URL=%q", public, templates, user, unifi)
 
 	tmpl := template.Must(template.ParseGlob(path.Join(templates, "*.html")))

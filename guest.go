@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/cookiejar"
@@ -18,12 +17,12 @@ import (
 )
 
 func NewGuestHandler(username, password, unifiBaseURL string, tmpl *template.Template) http.Handler {
-	jar, err := cookiejar.New(nil)
+	base, err := url.Parse(unifiBaseURL)
 	if err != nil {
 		panic(err)
 	}
-	cl := &http.Client{Jar: jar}
-	base, err := url.Parse(unifiBaseURL)
+
+	cl, err := newClient()
 	if err != nil {
 		panic(err)
 	}
@@ -124,6 +123,12 @@ func (h *guestHandler) handleDefault(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *guestHandler) loginUnifi() error {
+	cl, err := newClient()
+	if err != nil {
+		return err
+	}
+	h.cl = cl
+
 	frm := loginForm{Username: h.username, Password: h.password, Strict: true}
 	data, err := json.Marshal(frm)
 	if err != nil {
@@ -144,9 +149,7 @@ func (h *guestHandler) loginUnifi() error {
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		body, err := ioutil.ReadAll(resp.Body)
-		log.Printf("reading response body: %v\n%s\n", err, string(body))
-		return errors.New(fmt.Sprintf("Incorrect response: %v", resp.Status))
+		return errors.New(fmt.Sprintf("not ok response: %v", resp.Status))
 	}
 	return nil
 }
@@ -246,6 +249,14 @@ func parseForm(r *http.Request) (*guestLogin, error) {
 		Redirect: redir,
 		Nonce:    nonce,
 	}, nil
+}
+
+func newClient() (*http.Client, error) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{Jar: jar}, nil
 }
 
 func noCache(w http.ResponseWriter) {

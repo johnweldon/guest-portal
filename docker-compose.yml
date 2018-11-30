@@ -12,4 +12,19 @@ services:
       - UNIFI_URL=${UNIFI_URL:-https://unifi:8443/}
     ports:
       - "${PORT:-12380}:${PORT:-12380}"
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: any
+      # placement:
+      #  constraints:
+      #    - node.hostname == example
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 100M
+        reservations:
+          cpus: '0.1'
+          memory: 10M
 
