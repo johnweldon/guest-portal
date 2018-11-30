@@ -58,6 +58,7 @@ func (h *guestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *guestHandler) handleGet(w http.ResponseWriter, r *http.Request) {
+	noCache(w)
 	login, err := parseForm(r)
 	if err != nil {
 		log.Printf("Error extracting form data: %v", err)
@@ -94,9 +95,9 @@ func (h *guestHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "suspicious login attempt", http.StatusUnauthorized)
 		return
 	} else {
-		delete(h.nonces, login.Key())
+		defer delete(h.nonces, login.Key())
 		if nonce.String() != login.Nonce {
-			log.Println("Missing or expired nonce, possible bypass attempt")
+			log.Printf("Missing or expired nonce, possible bypass attempt; nonce=%q, loginNonce=%q", nonce.String(), login.Nonce)
 			http.Error(w, "suspicious login attempt", http.StatusUnauthorized)
 			return
 		}
@@ -244,6 +245,12 @@ func parseForm(r *http.Request) (*guestLogin, error) {
 	}, nil
 }
 
+func noCache(w http.ResponseWriter) {
+	w.Header().Set("Expires", Clock.HTTP(-1000*time.Hour))
+	w.Header().Set("Last-Modified", Clock.HTTP(0))
+	w.Header().Set("Cache-Control", "max-age=0, no-cache, must-revalidate, proxy-revalidate")
+}
+
 type cmd struct {
 	Cmd     string `json:"cmd"`
 	MAC     string `json:"mac"`
@@ -251,7 +258,8 @@ type cmd struct {
 }
 
 func newNonce(nonce string) expireNonce {
-	return expireNonce{nonce: nonce, until: time.Now().Add(10 * time.Minute).Unix()}
+	until := Clock.Unix(10 * time.Minute)
+	return expireNonce{nonce: nonce, until: until}
 }
 
 type expireNonce struct {
@@ -260,7 +268,7 @@ type expireNonce struct {
 }
 
 func (e expireNonce) String() string {
-	if e.until > time.Now().Unix() {
+	if e.until > Clock.Unix(0) {
 		return e.nonce
 	}
 	return ""
