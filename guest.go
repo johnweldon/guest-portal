@@ -32,7 +32,7 @@ func NewGuestHandler(username, password, unifiBaseURL string, tmpl *template.Tem
 		password: password,
 		unifiURL: base,
 		tmpl:     tmpl,
-		nonces:   map[string]expireNonce{},
+		nonces:   nonceCache{},
 	}
 }
 
@@ -42,7 +42,7 @@ type guestHandler struct {
 	username string
 	password string
 	unifiURL *url.URL
-	nonces   map[string]expireNonce
+	nonces   nonceCache
 }
 
 func (h *guestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +66,7 @@ func (h *guestHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.nonces[login.Key()] = newNonce(login.Nonce)
+	h.nonces.Set(login.Key(), login.Nonce)
 
 	tmpl := h.tmpl.Lookup("default.html")
 	if tmpl == nil {
@@ -90,17 +90,10 @@ func (h *guestHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if nonce, ok := h.nonces[login.Key()]; !ok {
+	if !h.nonces.Valid(login.Key(), login.Nonce) {
 		log.Println("Missing valid nonce, possible bypass attempt")
 		http.Error(w, "suspicious login attempt", http.StatusUnauthorized)
 		return
-	} else {
-		defer delete(h.nonces, login.Key())
-		if nonce.String() != login.Nonce {
-			log.Printf("Missing or expired nonce, possible bypass attempt; nonce=%q, loginNonce=%q", nonce.String(), login.Nonce)
-			http.Error(w, "suspicious login attempt", http.StatusUnauthorized)
-			return
-		}
 	}
 
 	if err := h.loginUnifi(); err != nil {
@@ -114,7 +107,9 @@ func (h *guestHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	h.purgeNonces()
+	defer delete(h.nonces, login.Key())
+
+	log.Printf("SUCCESSFUL login: redirect %q", login.Redirect)
 	http.Redirect(w, r, login.Redirect.String(), http.StatusSeeOther)
 }
 
@@ -123,12 +118,6 @@ func (h *guestHandler) handleDefault(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *guestHandler) loginUnifi() error {
-	cl, err := newClient()
-	if err != nil {
-		return err
-	}
-	h.cl = cl
-
 	frm := loginForm{Username: h.username, Password: h.password, Strict: true}
 	data, err := json.Marshal(frm)
 	if err != nil {
@@ -184,17 +173,35 @@ func (h *guestHandler) authorizeGuest(login *guestLogin) error {
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return errors.New(fmt.Sprintf("Incorrect response: %v", resp.Status))
+		return errors.New(fmt.Sprintf("login: unexpected response: %v", resp.Status))
 	}
 	return nil
 }
 
-func (h *guestHandler) purgeNonces() {
-	for k, v := range h.nonces {
-		if v.String() == "" {
-			delete(h.nonces, k)
-		}
+func (h *guestHandler) listGuests() ([]guest, error) {
+	staURL, err := h.unifiURL.Parse("/api/s/default/stat/sta")
+	if err != nil {
+		return nil, err
 	}
+
+	req, err := http.NewRequest("GET", staURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := h.cl.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New(fmt.Sprintf("listGuests: unexpected response: %v", resp.Status))
+	}
+	defer resp.Body.Close()
+	packet := &guestPacket{}
+	if err = json.NewDecoder(resp.Body).Decode(packet); err != nil {
+		return nil, err
+	}
+	return packet.Data, nil
 }
 
 type loginForm struct {
@@ -251,6 +258,21 @@ func parseForm(r *http.Request) (*guestLogin, error) {
 	}, nil
 }
 
+type guest struct {
+	MAC       string `json:"mac"`
+	Hostname  string `json:"hostname"`
+	IP        string `json:"ip"`
+	IsGuest   bool   `json:"is_guest"`
+	IsWired   bool   `json:"is_wired"`
+	ESSID     string `json:"essid"`
+	FirstSeen int64  `json:"first_seen"`
+	LastSeen  int64  `json:"last_seen"`
+}
+
+type guestPacket struct {
+	Data []guest `json:"data"`
+}
+
 func newClient() (*http.Client, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -271,19 +293,50 @@ type cmd struct {
 	Minutes int    `json:"minutes"`
 }
 
-func newNonce(nonce string) expireNonce {
-	until := Clock.Unix(10 * time.Minute)
-	return expireNonce{nonce: nonce, until: until}
-}
-
 type expireNonce struct {
 	nonce string
 	until int64
 }
 
-func (e expireNonce) String() string {
-	if e.until > Clock.Unix(0) {
-		return e.nonce
+func newNonce(nonce string) expireNonce {
+	until := Clock.Unix(10 * time.Minute)
+	return expireNonce{nonce: nonce, until: until}
+}
+
+type nonceCache map[string][]expireNonce
+
+func (c nonceCache) Valid(key, val string) bool {
+	for _, n := range c.Get(key) {
+		if n == val {
+			return true
+		}
 	}
-	return ""
+	return false
+}
+
+func (c nonceCache) Get(key string) []string {
+	var nonces []string
+	var fresh []expireNonce
+	now := Clock.Unix(0)
+	if l, ok := c[key]; ok {
+		for _, n := range l {
+			if n.until > now {
+				nonces = append(nonces, n.nonce)
+				fresh = append(fresh, n)
+			}
+		}
+		c[key] = fresh
+	}
+	return nonces
+}
+
+func (c nonceCache) Set(key string, val string) {
+	nonce := newNonce(val)
+	c[key] = append(c[key], nonce)
+}
+
+func (c nonceCache) Purge() {
+	for k := range c {
+		c.Get(k)
+	}
 }
